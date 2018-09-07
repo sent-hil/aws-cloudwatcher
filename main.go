@@ -91,6 +91,7 @@ func getGroups(client *cloudwatchlogs.CloudWatchLogs) (*cloudwatchlogs.DescribeL
 func getStreams(client *cloudwatchlogs.CloudWatchLogs, groupName string) (*cloudwatchlogs.DescribeLogStreamsOutput, error) {
 	input := &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(groupName),
+		Descending:   aws.Bool(true),
 	}
 	return client.DescribeLogStreams(input)
 }
