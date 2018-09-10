@@ -145,7 +145,7 @@ func getLogEvents(client *cloudwatchlogs.CloudWatchLogs, group, stream string) e
 		if nextForwardToken != *output.NextForwardToken {
 			for _, e := range output.Events {
 				tim := time.Unix(*e.Timestamp/1000, 0)
-				if !tim.After(*startTime) {
+				if *start != "" && !tim.After(*startTime) {
 					if *debug {
 						fmt.Printf(
 							"DEBUG: message for group: '%s', stream: '%s' timestamp: '%s' is after given start: '%s'\n",
