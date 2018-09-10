@@ -12,11 +12,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	chrono "github.com/matthewmueller/chrono.go"
 )
 
 var (
 	logMatcher    = flag.String("log", "", "Regex match of log group names")
 	streamMatcher = flag.String("stream", "", "Regex match of stream names")
+	debug         = flag.Bool("d", false, "Turn on debug logs")
+	start         = flag.String("start", "", "Start time of logs")
 )
 
 type l struct {
@@ -30,6 +33,15 @@ func main() {
 	session := session.Must(session.NewSession())
 	client := cloudwatchlogs.New(session)
 
+	startTime, err := parseTime(*start)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if *debug {
+		fmt.Printf("DEBUG: parsed '%s' as '%s'\n", *start, startTime)
+	}
+
 	logOutput, err := getGroups(client)
 	if err != nil {
 		log.Fatal(err)
@@ -38,6 +50,9 @@ func main() {
 	matchedGroups := []*cloudwatchlogs.LogGroup{}
 	for _, o := range logOutput.LogGroups {
 		m, err := regexp.MatchString(*logMatcher, *o.LogGroupName)
+		if *debug {
+			fmt.Println("DEBUG: matchedGroups", m, *o.LogGroupName)
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -55,6 +70,9 @@ func main() {
 
 		matchedS := []*cloudwatchlogs.LogStream{}
 		for _, ss := range s.LogStreams {
+			if *debug {
+				fmt.Println("DEBUG: matchedStreams", m, *ss.LogStreamName)
+			}
 			m, err := regexp.MatchString(*streamMatcher, *ss.LogStreamName)
 			if err != nil {
 				log.Fatal(err)
@@ -69,18 +87,23 @@ func main() {
 
 	var wg sync.WaitGroup
 
+beginning:
 	for _, s := range matchedStreams {
 		for _, ss := range s.streams {
 			wg.Add(1)
-			go func(streamName string) {
-				if err := getLogEvents(client, s.group, streamName); err != nil {
-					fmt.Println(">>>>>>>>>", err)
+			go func(streamName, group string) {
+				if err := getLogEvents(client, group, streamName); err != nil {
+					fmt.Println("ERROR", group, streamName, err)
 				}
-			}(*ss.LogStreamName)
+			}(*ss.LogStreamName, s.group)
 		}
 	}
 
 	wg.Wait()
+
+	time.Sleep(10 * time.Second)
+
+	goto beginning
 }
 
 func getGroups(client *cloudwatchlogs.CloudWatchLogs) (*cloudwatchlogs.DescribeLogGroupsOutput, error) {
@@ -91,12 +114,16 @@ func getGroups(client *cloudwatchlogs.CloudWatchLogs) (*cloudwatchlogs.DescribeL
 func getStreams(client *cloudwatchlogs.CloudWatchLogs, groupName string) (*cloudwatchlogs.DescribeLogStreamsOutput, error) {
 	input := &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(groupName),
-		Descending:   aws.Bool(true),
 	}
 	return client.DescribeLogStreams(input)
 }
 
 func getLogEvents(client *cloudwatchlogs.CloudWatchLogs, group, stream string) error {
+	startTime, err := parseTime(*start)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var nextForwardToken string
 	for {
 		input := &cloudwatchlogs.GetLogEventsInput{
@@ -117,8 +144,20 @@ func getLogEvents(client *cloudwatchlogs.CloudWatchLogs, group, stream string) e
 
 		if nextForwardToken != *output.NextForwardToken {
 			for _, e := range output.Events {
+				tim := time.Unix(*e.Timestamp/1000, 0)
+				if !tim.After(*startTime) {
+					if *debug {
+						fmt.Printf(
+							"DEBUG: message for group: '%s', stream: '%s' timestamp: '%s' is after given start: '%s'\n",
+							group, stream, tim, *startTime)
+					}
+
+					continue
+				}
+
 				suf := strings.Split(group, "/")
-				fmt.Println(suf[len(suf)-1], stream, time.Unix(*e.Timestamp/1000, 0).String(), *e.Message)
+				fmt.Println(suf[len(suf)-1], stream, tim)
+				fmt.Println(*e.Message, "\n")
 			}
 		}
 
@@ -128,4 +167,13 @@ func getLogEvents(client *cloudwatchlogs.CloudWatchLogs, group, stream string) e
 	}
 
 	return nil
+}
+
+func parseTime(t string) (*time.Time, error) {
+	c, err := chrono.New()
+	if err != nil {
+		return nil, err
+	}
+
+	return c.ParseDate(t, time.Now())
 }
