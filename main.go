@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -50,15 +51,20 @@ func main() {
 	matchedGroups := []*cloudwatchlogs.LogGroup{}
 	for _, o := range logOutput.LogGroups {
 		m, err := regexp.MatchString(*logMatcher, *o.LogGroupName)
-		if *debug {
-			fmt.Println("DEBUG: matchedGroups", m, *o.LogGroupName)
-		}
 		if err != nil {
 			log.Fatal(err)
 		}
 		if m {
+			if *debug {
+				fmt.Println("DEBUG: matchedGroups", m, *o.LogGroupName)
+			}
 			matchedGroups = append(matchedGroups, o)
 		}
+	}
+
+	if len(matchedGroups) == 0 {
+		fmt.Println("No groups matched.")
+		os.Exit(0)
 	}
 
 	matchedStreams := []*l{}
@@ -92,6 +98,7 @@ beginning:
 		for _, ss := range s.streams {
 			wg.Add(1)
 			go func(streamName, group string) {
+				fmt.Printf("Starting watching of group: '%s', stream: '%s'\n", streamName, group)
 				if err := getLogEvents(client, group, streamName); err != nil {
 					fmt.Println("ERROR", group, streamName, err)
 				}
