@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -162,8 +161,7 @@ func getLogEvents(client *cloudwatchlogs.CloudWatchLogs, group, stream string) e
 					continue
 				}
 
-				suf := strings.Split(group, "/")
-				fmt.Println(suf[len(suf)-1], stream, tim)
+				fmt.Println(group, stream, tim)
 				fmt.Println(*e.Message, "\n")
 			}
 		}
